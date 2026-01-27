@@ -1,0 +1,41 @@
+{
+    "name": "synkdocs-web",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next start",
+        "lint": "next lint"
+    },
+    "dependencies": {
+        "@supabase/supabase-js": "^2.39.0",
+        "@tiptap/extension-collaboration": "^2.2.0",
+        "@tiptap/extension-collaboration-cursor": "^2.2.0",
+        "@tiptap/extension-placeholder": "^2.2.0",
+        "@tiptap/pm": "^2.2.0",
+        "@tiptap/react": "^2.2.0",
+        "@tiptap/starter-kit": "^2.2.0",
+        "clsx": "^2.1.0",
+        "date-fns": "^3.3.0",
+        "lucide-react": "^0.300.0",
+        "next": "14.1.0",
+        "react": "^18",
+        "react-dom": "^18",
+        "tailwind-merge": "^2.2.0",
+        "uuid": "^9.0.1",
+        "y-websocket": "^1.5.0",
+        "yjs": "^13.6.0"
+    },
+    "devDependencies": {
+        "@tailwindcss/typography": "^0.5.19",
+        "@types/node": "^20",
+        "@types/react": "^18",
+        "@types/react-dom": "^18",
+        "@types/uuid": "^9.0.8",
+        "autoprefixer": "^10.0.1",
+        "postcss": "^8",
+        "tailwindcss": "^3.3.0",
+        "typescript": "^5"
+    }
+}
