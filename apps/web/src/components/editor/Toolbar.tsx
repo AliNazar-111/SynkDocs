@@ -2,8 +2,9 @@
 
 import React from 'react';
 import { type Editor } from '@tiptap/react';
-import { MessageSquare } from 'lucide-react';
+import { MessageSquare, Sparkles } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import { formatJsonDocument } from '@/lib/wasm/formatter';
 
 interface ToolbarProps {
     editor: Editor | null;

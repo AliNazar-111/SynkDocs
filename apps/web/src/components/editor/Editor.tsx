@@ -6,14 +6,27 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
-import { Mark, mergeAttributes } from '@tiptap/core';
+import { Mark, mergeAttributes, Extension } from '@tiptap/core';
+import Typography from '@tiptap/extension-typography';
 import Toolbar from './Toolbar';
 import PresenceBar from './PresenceBar';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import { PresenceUser } from '@/hooks/useCollaboration';
+import { PresenceUser } from '@/hooks/usePresence';
 import { CommentThread } from '@/types/comment';
 import { EditorView } from '@tiptap/pm/view';
+
+// Custom Extension to handle Tab key (Word-like behavior)
+const TabExtension = Extension.create({
+    name: 'tabHandler',
+    addKeyboardShortcuts() {
+        return {
+            Tab: () => {
+                return this.editor.commands.insertContent('\t');
+            },
+        };
+    },
+});
 
 // Custom Comment Mark
 const CommentMark = Mark.create({
@@ -52,15 +65,16 @@ const CommentMark = Mark.create({
 });
 
 interface EditorProps {
-    ydoc?: Y.Doc;
+    ydoc?: Y.Doc | null;
     provider?: WebsocketProvider | null;
     users?: PresenceUser[];
     threads?: CommentThread[];
     onThreadClick?: (threadId: string) => void;
     onNewComment?: (threadId: string) => void;
-    initialContent?: string;
+    initialContent?: any;
     onChange?: (content: string) => void;
     readOnly?: boolean;
+    forceContent?: any;
 }
 
 const Editor: React.FC<EditorProps> = ({
@@ -72,33 +86,51 @@ const Editor: React.FC<EditorProps> = ({
     onNewComment,
     initialContent = '',
     onChange,
-    readOnly = false
+    readOnly = false,
+    forceContent = null
 }: EditorProps) => {
-    const editor = useEditor({
-        extensions: [
+    // Memoize extensions to prevent re-initializing TipTap on every render
+    const extensions = React.useMemo(() => {
+        const baseExtensions: any[] = [
             StarterKit.configure({
                 history: false, // Collaboration handles history internally
+                hardBreak: {
+                    keepMarks: true,
+                },
             }),
+            Typography,
+            TabExtension,
             Placeholder.configure({
                 placeholder: 'Start typing something amazing...',
             }),
             CommentMark,
-            ...(ydoc ? [
-                Collaboration.configure({
-                    document: ydoc,
-                })
-            ] : []),
-            ...(provider ? [
+            Collaboration.configure({
+                document: ydoc!,
+            }),
+        ];
+
+        // Only add CollaborationCursor if provider is available
+        if (provider) {
+            baseExtensions.push(
                 CollaborationCursor.configure({
                     provider: provider,
                     user: provider.awareness.getLocalState()?.user,
                 })
-            ] : []),
-        ],
-        content: ydoc ? undefined : initialContent,
+            );
+        }
+
+        return baseExtensions;
+    }, [ydoc, provider]);
+
+    const editor = useEditor({
+        extensions,
+        content: undefined,
         editable: !readOnly,
-        onUpdate: ({ editor }) => {
-            onChange?.(editor.getHTML());
+        onUpdate: ({ editor, transaction }) => {
+            // Only trigger onChange for local changes
+            if (transaction.docChanged) {
+                onChange?.(JSON.stringify(editor.getJSON()));
+            }
 
             // Handle typing indicator
             if (provider) {
@@ -138,10 +170,10 @@ const Editor: React.FC<EditorProps> = ({
                 return false;
             },
             attributes: {
-                class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl mx-auto focus:outline-none min-h-[500px] p-8 md:p-12',
+                class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl mx-auto focus:outline-none min-h-[500px] p-8 md:p-12 whitespace-pre-wrap',
             },
         },
-    });
+    }, [extensions]); // Add extensions as dependency for useEditor
 
     // Update editable state when readOnly prop changes
     React.useEffect(() => {
@@ -150,12 +182,32 @@ const Editor: React.FC<EditorProps> = ({
         }
     }, [editor, readOnly]);
 
-    // Force content update when not in collaboration mode (e.g. previewing history)
+    const initialContentApplied = React.useRef(false);
+    const prevInitialContent = React.useRef<any>(null);
+
+    // Force content update (e.g. previewing history OR restoring a version)
     React.useEffect(() => {
-        if (editor && !ydoc && initialContent) {
-            editor.commands.setContent(initialContent);
+        if (!editor) return;
+
+        // Force content always takes priority
+        if (forceContent) {
+            editor.commands.setContent(forceContent);
+            return;
         }
-    }, [editor, ydoc, initialContent]);
+
+        // Apply initial content only once or when it significantly changes
+        if (initialContent && (initialContent !== prevInitialContent.current || !initialContentApplied.current)) {
+            // Only apply if the editor is currently empty to avoid overwriting remote sync content
+            if (editor.isEmpty) {
+                console.log('📄 Applying initial content from Supabase');
+                // Handle ydoc.toJSON() format which wraps content in 'default'
+                const contentToSet = initialContent.default || initialContent;
+                editor.commands.setContent(contentToSet);
+            }
+            initialContentApplied.current = true;
+            prevInitialContent.current = initialContent;
+        }
+    }, [editor, initialContent, forceContent]);
 
     return (
         <div className="flex flex-col flex-1 h-full max-w-4xl mx-auto bg-[var(--navbar-bg)] shadow-sm border rounded-b-none md:rounded-b-lg overflow-hidden">

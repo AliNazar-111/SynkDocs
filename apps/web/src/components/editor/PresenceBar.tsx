@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { PresenceUser } from '@/hooks/useCollaboration';
+import { PresenceUser } from '@/hooks/usePresence';
 
 interface PresenceBarProps {
     users: PresenceUser[];
@@ -12,13 +12,13 @@ const PresenceBar: React.FC<PresenceBarProps> = ({ users }) => {
         <div className="flex items-center -space-x-2 overflow-hidden px-4 py-2 border-b bg-[var(--navbar-bg)]">
             {users.map((user) => (
                 <div
-                    key={user.clientId}
+                    key={user.id}
                     className="relative inline-block h-8 w-8 rounded-full ring-2 ring-white dark:ring-gray-900 group"
                     style={{ backgroundColor: user.color }}
-                    title={user.name}
+                    title={user.name || user.email}
                 >
                     <div className="flex h-full w-full items-center justify-center text-xs font-bold text-white uppercase">
-                        {user.name.charAt(0)}
+                        {(user.name || user.email || 'A').charAt(0)}
                     </div>
 
                     {user.isTyping && (
@@ -31,7 +31,7 @@ const PresenceBar: React.FC<PresenceBarProps> = ({ users }) => {
                     {/* Tooltip */}
                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block transition-all">
                         <div className="bg-gray-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap shadow-lg">
-                            {user.name} {user.isTyping && '(typing...)'}
+                            {user.name || user.email}
                         </div>
                     </div>
                 </div>
@@ -43,7 +43,7 @@ const PresenceBar: React.FC<PresenceBarProps> = ({ users }) => {
                 </div>
             )}
 
-            <div className="ml-4 text-xs text-muted-foreground hidden sm:block">
+            <div className="ml-6 text-xs text-muted-foreground hidden sm:block" style={{ padding: '0 17px' }}>
                 {users.length} collaborator{users.length !== 1 ? 's' : ''} online
             </div>
         </div>

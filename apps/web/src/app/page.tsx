@@ -1,69 +1,48 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Document } from '@/types/document';
+import React from 'react';
+import { useRouter } from 'next/navigation';
 import DocumentCard from '@/components/dashboard/DocumentCard';
 import EmptyState from '@/components/dashboard/EmptyState';
 import { useAuth } from '@/components/providers/AuthContext';
 import { Skeleton } from '@/components/ui/Skeleton';
-
-const MOCK_DOCS: Document[] = [
-    {
-        id: '1',
-        title: 'Getting Started with SynkDocs',
-        owner_id: 'user-1',
-        created_at: '2026-01-20T10:00:00Z',
-        updated_at: '2026-01-25T14:30:00Z',
-    },
-    {
-        id: '2',
-        title: 'Project Roadmap 2026',
-        owner_id: 'user-1',
-        created_at: '2026-01-15T09:00:00Z',
-        updated_at: '2026-01-22T16:45:00Z',
-    },
-    {
-        id: '3',
-        title: 'Meeting Notes - Architecture',
-        owner_id: 'user-1',
-        created_at: '2026-01-24T11:00:00Z',
-        updated_at: '2026-01-24T11:30:00Z',
-    },
-];
+import { useDocuments, useDocumentsData } from '@/hooks/useDocuments';
+import { createDocument, deleteDocument } from '@/lib/api/documents';
 
 export default function DashboardPage() {
     const { user } = useAuth();
-    const [documents, setDocuments] = useState<Document[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const router = useRouter();
+    const { documents, loading, error, refetch } = useDocumentsData();
 
-    useEffect(() => {
-        // Simulate data fetch
-        const timer = setTimeout(() => {
-            setDocuments(MOCK_DOCS);
-            setIsLoading(false);
-        }, 1000);
+    const handleCreateDocument = async () => {
+        try {
+            const newDoc = await createDocument('Untitled Document', {});
 
-        return () => clearTimeout(timer);
-    }, []);
-
-    const handleCreateDocument = () => {
-        const newDoc: Document = {
-            id: Math.random().toString(36).substring(7),
-            title: 'Untitled Document',
-            owner_id: user?.id || 'anonymous',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        };
-        setDocuments([newDoc, ...documents]);
-    };
-
-    const handleDeleteDocument = (id: string) => {
-        if (confirm('Are you sure you want to delete this document?')) {
-            setDocuments(documents.filter((doc) => doc.id !== id));
+            // Navigate to the new document
+            router.push(`/documents/${newDoc.id}`);
+        } catch (error) {
+            console.error('Failed to create document:', error);
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            alert(`Failed to create document: ${message}`);
         }
     };
 
-    if (isLoading) {
+    const handleDeleteDocument = async (id: string) => {
+        if (!confirm('Are you sure you want to delete this document?')) {
+            return;
+        }
+
+        try {
+            await deleteDocument(id);
+            await refetch(); // Refresh the list
+        } catch (error) {
+            console.error('Failed to delete document:', error);
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            alert(`Failed to delete document: ${message}`);
+        }
+    };
+
+    if (loading) {
         return (
             <div className="p-8 max-w-7xl mx-auto">
                 <div className="flex items-center justify-between mb-8">
@@ -74,6 +53,25 @@ export default function DashboardPage() {
                     {[1, 2, 3, 4].map((i) => (
                         <Skeleton key={i} className="h-44 rounded-xl" />
                     ))}
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="p-8 max-w-7xl mx-auto">
+                <div className="flex flex-col items-center justify-center h-64">
+                    <h2 className="text-2xl font-bold mb-2">Failed to load documents</h2>
+                    <p className="text-muted-foreground mb-4">
+                        {error instanceof Error ? error.message : String(error)}
+                    </p>
+                    <button
+                        onClick={() => refetch()}
+                        className="text-blue-600 hover:underline"
+                    >
+                        Try again
+                    </button>
                 </div>
             </div>
         );

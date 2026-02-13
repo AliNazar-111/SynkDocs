@@ -1,16 +1,32 @@
 import React from 'react';
+import Link from 'next/link';
+import { useRouter, useParams } from 'next/navigation';
+import { formatDistanceToNow } from 'date-fns';
+import { useDocumentsData } from '@/hooks/useDocuments';
+import { createDocument } from '@/lib/api/documents';
 
 const Sidebar = () => {
-    const documents = [
-        { id: '1', title: 'Getting Started with SynkDocs', date: '2 days ago' },
-        { id: '2', title: 'Project Roadmap 2026', date: '1 week ago' },
-        { id: '3', title: 'Meeting Notes - Architecture', date: 'Jan 24, 2026' },
-    ];
+    const router = useRouter();
+    const params = useParams();
+    const currentDocId = params?.id;
+    const { documents, loading } = useDocumentsData();
+
+    const handleNewDocument = async () => {
+        try {
+            const newDoc = await createDocument('Untitled Document', {});
+            router.push(`/documents/${newDoc.id}`);
+        } catch (error) {
+            console.error('Failed to create document:', error);
+        }
+    };
 
     return (
         <aside className="w-64 border-r bg-[var(--sidebar-bg)] hidden md:flex flex-col h-[calc(100vh-3.5rem)] sticky top-14">
             <div className="p-4">
-                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2.5 px-4 font-medium transition-colors flex items-center justify-center gap-2 shadow-sm">
+                <button
+                    onClick={handleNewDocument}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2.5 px-4 font-medium transition-colors flex items-center justify-center gap-2 shadow-sm"
+                >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
@@ -23,15 +39,38 @@ const Sidebar = () => {
                     Recent Documents
                 </div>
                 <div className="space-y-0.5">
-                    {documents.map((doc) => (
-                        <button
-                            key={doc.id}
-                            className="w-full text-left px-3 py-2 rounded-md hover:bg-muted/10 transition-colors group"
-                        >
-                            <div className="text-sm font-medium truncate">{doc.title}</div>
-                            <div className="text-[10px] text-muted-foreground">{doc.date}</div>
-                        </button>
-                    ))}
+                    {loading ? (
+                        <div className="px-3 py-4 space-y-3">
+                            {[1, 2, 3].map((i) => (
+                                <div key={i} className="animate-pulse flex flex-col gap-1.5">
+                                    <div className="h-3 w-3/4 bg-muted rounded" />
+                                    <div className="h-2 w-1/2 bg-muted/60 rounded" />
+                                </div>
+                            ))}
+                        </div>
+                    ) : documents.length === 0 ? (
+                        <div className="px-3 py-4 text-xs text-muted-foreground italic">
+                            No documents found
+                        </div>
+                    ) : (
+                        documents.slice(0, 7).map((doc) => (
+                            <Link
+                                key={doc.id}
+                                href={`/documents/${doc.id}`}
+                                className={`block w-full text-left px-3 py-2 rounded-md transition-colors group ${currentDocId === doc.id
+                                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400'
+                                    : 'hover:bg-muted/10'
+                                    }`}
+                            >
+                                <div className="text-sm font-medium truncate">
+                                    {doc.title || 'Untitled Document'}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">
+                                    {formatDistanceToNow(new Date(doc.updated_at || doc.created_at), { addSuffix: true })}
+                                </div>
+                            </Link>
+                        ))
+                    )}
                 </div>
             </div>
 
@@ -46,4 +85,3 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
-创新

@@ -3,37 +3,59 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Editor from '@/components/editor/Editor';
-import { useCollaboration } from '@/hooks/useCollaboration';
+import { CollaborationProvider, useCollaboration } from '@/components/providers/CollaborationProvider';
 import { useAuth } from '@/components/providers/AuthContext';
-import { CommentThread as ThreadType, Comment } from '@/types/comment';
+import { useAutoSave } from '@/hooks/useAutoSave';
+import { usePresence } from '@/hooks/usePresence';
+import { useDocument } from '@/hooks/useDocuments';
+import { useComments } from '@/hooks/useComments';
+import { useVersions } from '@/hooks/useVersions';
+import { createComment, resolveComment, unresolveComment } from '@/lib/api/comments';
+import { restoreVersion } from '@/lib/api/versions';
+import { updateDocument } from '@/lib/api/documents';
 import CommentsSidebar from '@/components/comments/CommentsSidebar';
-import { v4 as uuidv4 } from 'uuid';
-import { Version } from '@/types/version';
 import VersionHistorySidebar from '@/components/versions/VersionHistorySidebar';
 import { History as HistoryIcon } from 'lucide-react';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
-export default function DocumentPage() {
+function DocumentContent() {
     const { id } = useParams();
     const router = useRouter();
     const { user } = useAuth();
+    const docId = typeof id === 'string' ? id : '';
+
+    // Fetch document data
+    const { document, loading: docLoading } = useDocument(docId);
+    const { comments, loading: commentsLoading } = useComments(docId);
+    const { versions, loading: versionsLoading, refetch: refetchVersions } = useVersions(docId);
+
+    // UI state
     const [title, setTitle] = useState('Untitled Document');
-    const [isSaving, setIsSaving] = useState(false);
-    const [threads, setThreads] = useState<ThreadType[]>([]);
-    const [activeThreadId, setActiveThreadId] = useState<string | undefined>();
     const [showComments, setShowComments] = useState(true);
     const [showHistory, setShowHistory] = useState(false);
-    const [versions, setVersions] = useState<Version[]>([]);
-    const [previewVersion, setPreviewVersion] = useState<Version | null>(null);
+    const [activeThreadId, setActiveThreadId] = useState<string | undefined>();
+    const [previewVersion, setPreviewVersion] = useState<any | null>(null);
+    const [forceContent, setForceContent] = useState<any | null>(null);
+    const [editorJson, setEditorJson] = useState<string | null>(null);
 
-    const docId = typeof id === 'string' ? id : '';
-    const username = user?.email?.split('@')[0] || 'Anonymous';
-
-    const { ydoc, provider, isConnected, users: collaborationUsers } = useCollaboration({
-        docId,
-        username,
+    // Collaboration state
+    const { ydoc, provider, isConnected, isSynced, error: collabError } = useCollaboration();
+    const { users: collaborationUsers } = usePresence();
+    const { save: manualSave, editCount } = useAutoSave({
+        documentId: docId,
+        title: document?.title || 'Untitled Document',
+        content: editorJson,
+        enabled: !!document && isSynced,
     });
 
+    // Load document data
+    useEffect(() => {
+        if (document) {
+            setTitle(document.title);
+        }
+    }, [document]);
+
+    // Keyboard shortcuts
     useKeyboardShortcuts([
         {
             combo: { key: '/', ctrl: true },
@@ -42,94 +64,155 @@ export default function DocumentPage() {
         {
             combo: { key: 'h', ctrl: true },
             action: () => setShowHistory(prev => !prev)
+        },
+        {
+            combo: { key: 's', ctrl: true },
+            action: () => manualSave()
         }
     ]);
 
-    // Mock initial load
-    useEffect(() => {
-        const savedDoc = localStorage.getItem(`doc_${id}`);
-        if (savedDoc) {
-            const { title } = JSON.parse(savedDoc);
-            setTitle(title);
-        }
-    }, [id]);
-
-    const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleTitleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const newTitle = e.target.value;
         setTitle(newTitle);
-        autoSave(newTitle);
+
+        // Update in Supabase
+        try {
+            await updateDocument(docId, { title: newTitle });
+        } catch (error) {
+            console.error('Failed to update title:', error);
+        }
     };
 
-    const handleContentChange = (content: string) => {
-        autoSave(undefined, content);
+    const handleNewComment = async (content: string) => {
+        try {
+            const newComment = await createComment(docId, content);
+            setActiveThreadId(newComment.thread_id);
+        } catch (error) {
+            console.error('Failed to create comment:', error);
+        }
     };
 
-    const autoSave = (newTitle?: string, content?: string) => {
-        setIsSaving(true);
-        // Simulate network delay
-        setTimeout(() => {
-            const existing = JSON.parse(localStorage.getItem(`doc_${id}`) || '{}');
-            const data = {
-                title: newTitle ?? title,
-                content: content ?? existing.content ?? '',
-                updated_at: new Date().toISOString(),
-            };
-            localStorage.setItem(`doc_${id}`, JSON.stringify(data));
-            setIsSaving(false);
-        }, 500);
+    const handleReply = async (threadId: string, content: string) => {
+        try {
+            await createComment(docId, content, threadId);
+        } catch (error) {
+            console.error('Failed to reply:', error);
+        }
     };
 
-    const handleNewComment = (content: string) => {
-        const newThread: ThreadType = {
-            id: uuidv4(),
-            anchorId: uuidv4(), // In a real app, this would be tied to selection range ID
-            comments: [{
-                id: uuidv4(),
-                authorName: username,
-                authorEmail: user?.email ?? undefined,
-                content,
-                createdAt: new Date().toISOString(),
-            }],
-            isResolved: false,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-        };
-        setThreads([...threads, newThread]);
-        setActiveThreadId(newThread.id);
+    const handleResolve = async (threadId: string) => {
+        try {
+            await resolveComment(threadId);
+        } catch (error) {
+            console.error('Failed to resolve comment:', error);
+        }
     };
 
-    const handleReply = (threadId: string, content: string) => {
-        setThreads(threads.map((t: ThreadType) => {
-            if (t.id === threadId) {
-                const newComment: Comment = {
-                    id: uuidv4(),
-                    authorName: username,
-                    authorEmail: user?.email ?? undefined,
-                    content,
-                    createdAt: new Date().toISOString(),
-                };
-                return {
-                    ...t,
-                    comments: [...t.comments, newComment],
-                    updatedAt: new Date().toISOString(),
-                };
-            }
-            return t;
-        }));
+    const handleReopen = async (threadId: string) => {
+        try {
+            await unresolveComment(threadId);
+        } catch (error) {
+            console.error('Failed to reopen comment:', error);
+        }
     };
 
-    const handleResolve = (threadId: string) => {
-        setThreads(threads.map((t: ThreadType) => t.id === threadId ? { ...t, isResolved: true } : t));
+    const handleRestoreVersion = async (version: any) => {
+        try {
+            await restoreVersion(version.id);
+
+            // Apply content to live editor to sync with peers
+            setForceContent(version.content);
+
+            // Reset forceContent after a short delay so it can be triggered again
+            setTimeout(() => setForceContent(null), 100);
+
+            setPreviewVersion(null);
+            setShowHistory(false);
+            await refetchVersions();
+        } catch (error) {
+            console.error('Failed to restore version:', error);
+        }
     };
 
-    const handleReopen = (threadId: string) => {
-        setThreads(threads.map((t: ThreadType) => t.id === threadId ? { ...t, isResolved: false } : t));
-    };
+    if (docLoading) {
+        return (
+            <div className="flex h-screen items-center justify-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
+        );
+    }
+
+    if (!document) {
+        return (
+            <div className="flex h-screen items-center justify-center">
+                <div className="text-center">
+                    <h2 className="text-2xl font-bold mb-2">Document not found</h2>
+                    <button
+                        onClick={() => router.push('/')}
+                        className="text-blue-600 hover:underline"
+                    >
+                        Back to Dashboard
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // Group comments by thread
+    const threads = comments.reduce((acc, comment) => {
+        const existing = acc.find(t => t.id === comment.thread_id);
+        if (existing) {
+            existing.comments.push({
+                id: comment.id,
+                authorName: comment.user?.full_name || comment.user?.email || 'Anonymous',
+                authorEmail: comment.user?.email,
+                content: comment.content,
+                createdAt: comment.created_at,
+            });
+        } else if (!comment.parent_id) {
+            acc.push({
+                id: comment.thread_id,
+                anchorId: comment.position_data?.toString() || '',
+                comments: [{
+                    id: comment.id,
+                    authorName: comment.user?.full_name || comment.user?.email || 'Anonymous',
+                    authorEmail: comment.user?.email,
+                    content: comment.content,
+                    createdAt: comment.created_at,
+                }],
+                isResolved: !!comment.resolved_at,
+                createdAt: comment.created_at,
+                updatedAt: comment.updated_at,
+            });
+        }
+        return acc;
+    }, [] as any[]);
+
+    // Map database versions to Version type
+    const mappedVersions = versions.map(v => ({
+        id: v.id,
+        timestamp: v.created_at,
+        authorName: v.user?.full_name || v.user?.email || 'Anonymous',
+        authorEmail: v.user?.email,
+        content: v.content as unknown as string, // Cast Json to string for the editor
+        label: v.title || v.change_summary || undefined
+    }));
 
     return (
         <div className="flex h-screen bg-[#f8f9fa] dark:bg-[#111111]">
             <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="max-w-4xl w-full mx-auto pt-8 px-4">
+                    {collabError && (
+                        <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center justify-between">
+                            <p className="text-sm font-medium">⚠️ {collabError}</p>
+                            <button
+                                onClick={() => router.push('/')}
+                                className="text-sm underline hover:no-underline"
+                            >
+                                Go Back
+                            </button>
+                        </div>
+                    )}
                     <div className="mb-6 flex items-center justify-between">
                         <div className="flex-1">
                             <input
@@ -141,8 +224,11 @@ export default function DocumentPage() {
                             />
                             <div className="flex items-center gap-4 mt-1">
                                 <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                                    <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`}></span>
-                                    {isConnected ? (isSaving ? 'Saving...' : 'All changes saved') : 'Connecting...'}
+                                    <span className={`w-2 h-2 rounded-full ${isConnected && isSynced ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
+                                    {!isConnected ? 'Offline' : !isSynced ? 'Syncing...' : editCount > 0 ? `${editCount} unsaved changes` : 'All changes saved'}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                    {collaborationUsers.length} active user{collaborationUsers.length !== 1 ? 's' : ''}
                                 </span>
                                 <button
                                     onClick={() => router.push('/')}
@@ -170,20 +256,31 @@ export default function DocumentPage() {
                         </div>
                     </div>
 
-                    <Editor
-                        ydoc={ydoc}
-                        provider={provider}
-                        users={collaborationUsers}
-                        threads={threads}
-                        onThreadClick={(id: string) => {
-                            setActiveThreadId(id);
-                            setShowComments(true);
-                            setShowHistory(false);
-                        }}
-                        initialContent={previewVersion ? previewVersion.content : JSON.parse(localStorage.getItem(`doc_${id}`) || '{}').content}
-                        onChange={handleContentChange}
-                        readOnly={!!previewVersion}
-                    />
+                    {ydoc && document ? (
+                        <Editor
+                            ydoc={ydoc}
+                            provider={provider}
+                            users={collaborationUsers}
+                            threads={threads}
+                            onThreadClick={(id: string) => {
+                                setActiveThreadId(id);
+                                setShowComments(true);
+                                setShowHistory(false);
+                            }}
+                            initialContent={previewVersion ? previewVersion.content : document.content}
+                            forceContent={forceContent}
+                            onChange={setEditorJson}
+                            readOnly={!!previewVersion}
+                        />
+                    ) : (
+                        <div className="flex flex-col items-center justify-center min-h-[500px] bg-[var(--navbar-bg)] rounded-lg border border-dashed">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+                            <p className="text-sm text-muted-foreground font-medium">
+                                {!document ? 'Loading document...' : 'Initializing collaboration...'}
+                            </p>
+                        </div>
+                    )}
+
                 </div>
             </div>
 
@@ -201,14 +298,10 @@ export default function DocumentPage() {
 
             {showHistory && (
                 <VersionHistorySidebar
-                    versions={versions}
+                    versions={mappedVersions}
                     currentVersionId={previewVersion?.id}
-                    onVersionSelect={(v: Version) => setPreviewVersion(v)}
-                    onRestore={(v: Version) => {
-                        handleContentChange(v.content);
-                        setPreviewVersion(null);
-                        setShowHistory(false);
-                    }}
+                    onVersionSelect={(v) => setPreviewVersion(v)}
+                    onRestore={handleRestoreVersion}
                     onClose={() => {
                         setShowHistory(false);
                         setPreviewVersion(null);
@@ -217,5 +310,16 @@ export default function DocumentPage() {
                 />
             )}
         </div>
+    );
+}
+
+export default function DocumentPage() {
+    const { id } = useParams();
+    const docId = typeof id === 'string' ? id : '';
+
+    return (
+        <CollaborationProvider key={docId} documentId={docId}>
+            <DocumentContent />
+        </CollaborationProvider>
     );
 }

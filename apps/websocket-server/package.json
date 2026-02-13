@@ -1,0 +1,25 @@
+{
+    "name": "synkdocs-websocket-server",
+    "version": "1.0.0",
+    "description": "WebSocket server for SynkDocs real-time collaboration",
+    "main": "server.js",
+    "type": "module",
+    "scripts": {
+        "start": "node server.js",
+        "dev": "node --watch server.js"
+    },
+    "dependencies": {
+        "@supabase/supabase-js": "^2.39.0",
+        "dotenv": "^16.3.1",
+        "ws": "^8.16.0",
+        "y-websocket": "^1.5.4",
+        "yjs": "^13.6.29"
+    },
+    "keywords": [
+        "websocket",
+        "yjs",
+        "collaboration"
+    ],
+    "author": "",
+    "license": "MIT"
+}
