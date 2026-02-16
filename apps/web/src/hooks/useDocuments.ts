@@ -131,3 +131,47 @@ export function useDocument(documentId: string | null) {
 
     return { document, loading, error, refetch };
 }
+
+/**
+ * Hook to subscribe to single document changes (real-time)
+ */
+export function useDocumentData(documentId: string | null) {
+    const { document, loading, error, refetch } = useDocument(documentId);
+    const [realtimeDocument, setRealtimeDocument] = useState<DocumentWithCollaborators | null>(null);
+
+    useEffect(() => {
+        setRealtimeDocument(document);
+    }, [document]);
+
+    useEffect(() => {
+        if (!documentId) return;
+
+        console.log(`📡 Document Data: Connecting to real-time updates for ${documentId}...`);
+
+        const channel = supabase
+            .channel(`public:document:${documentId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'documents',
+                    filter: `id=eq.${documentId}`
+                },
+                (payload) => {
+                    console.log('🔄 Document Data: Change detected!', payload.eventType);
+                    refetch();
+                }
+            )
+            .subscribe((status) => {
+                console.log('📡 Document Data: Subscription status:', status);
+            });
+
+        return () => {
+            console.log('📡 Document Data: Cleaning up subscription');
+            supabase.removeChannel(channel);
+        };
+    }, [documentId, refetch]);
+
+    return { document: realtimeDocument, loading, error, refetch };
+}

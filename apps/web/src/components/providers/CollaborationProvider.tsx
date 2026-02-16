@@ -60,9 +60,6 @@ export function CollaborationProvider({
         let setupTimeout: NodeJS.Timeout;
 
         async function setupCollaboration() {
-            if (setupInProgress.current) return;
-            setupInProgress.current = true;
-
             try {
                 // Ensure previous provider is destroyed
                 if (providerRef.current) {
@@ -141,8 +138,6 @@ export function CollaborationProvider({
             } catch (err) {
                 console.error('Setup error:', err);
                 if (mounted) setError('Failed to initialize collaboration');
-            } finally {
-                setupInProgress.current = false;
             }
         }
 

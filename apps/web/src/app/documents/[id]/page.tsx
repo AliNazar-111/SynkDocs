@@ -7,15 +7,15 @@ import { CollaborationProvider, useCollaboration } from '@/components/providers/
 import { useAuth } from '@/components/providers/AuthContext';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { usePresence } from '@/hooks/usePresence';
-import { useDocument } from '@/hooks/useDocuments';
+import { useDocumentData as useDocument } from '@/hooks/useDocuments';
 import { useComments } from '@/hooks/useComments';
-import { useVersions } from '@/hooks/useVersions';
+import { useVersionsData as useVersions } from '@/hooks/useVersions';
 import { createComment, resolveComment, unresolveComment } from '@/lib/api/comments';
 import { restoreVersion } from '@/lib/api/versions';
 import { updateDocument } from '@/lib/api/documents';
 import CommentsSidebar from '@/components/comments/CommentsSidebar';
 import VersionHistorySidebar from '@/components/versions/VersionHistorySidebar';
-import { History as HistoryIcon } from 'lucide-react';
+import { History as HistoryIcon, Save } from 'lucide-react';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
 function DocumentContent() {
@@ -45,8 +45,15 @@ function DocumentContent() {
         documentId: docId,
         title: document?.title || 'Untitled Document',
         content: editorJson,
-        enabled: !!document && isSynced,
+        enabled: !!document, // Decoupled from isSynced to allow saving offline
     });
+
+    // Loading gate state - Moved UP before conditional returns
+    const [forceShow, setForceShow] = useState(false);
+    useEffect(() => {
+        const timer = setTimeout(() => setForceShow(true), 10000);
+        return () => clearTimeout(timer);
+    }, []);
 
     // Load document data
     useEffect(() => {
@@ -70,6 +77,46 @@ function DocumentContent() {
             action: () => manualSave()
         }
     ]);
+
+    // Group comments by thread
+    const threads = comments.reduce((acc, comment) => {
+        const existing = acc.find(t => t.id === comment.thread_id);
+        if (existing) {
+            existing.comments.push({
+                id: comment.id,
+                authorName: comment.user?.full_name || comment.user?.email || 'Anonymous',
+                authorEmail: comment.user?.email,
+                content: comment.content,
+                createdAt: comment.created_at,
+            });
+        } else if (!comment.parent_id) {
+            acc.push({
+                id: comment.thread_id,
+                anchorId: comment.position_data?.toString() || '',
+                comments: [{
+                    id: comment.id,
+                    authorName: comment.user?.full_name || comment.user?.email || 'Anonymous',
+                    authorEmail: comment.user?.email,
+                    content: comment.content,
+                    createdAt: comment.created_at,
+                }],
+                isResolved: !!comment.resolved_at,
+                createdAt: comment.created_at,
+                updatedAt: comment.updated_at,
+            });
+        }
+        return acc;
+    }, [] as any[]);
+
+    // Map database versions to Version type
+    const mappedVersions = versions.map(v => ({
+        id: v.id,
+        timestamp: v.created_at,
+        authorName: v.user?.full_name || v.user?.email || 'Anonymous',
+        authorEmail: v.user?.email,
+        content: v.content as unknown as string, // Cast Json to string for the editor
+        label: v.title || v.change_summary || undefined
+    }));
 
     const handleTitleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const newTitle = e.target.value;
@@ -134,6 +181,7 @@ function DocumentContent() {
         }
     };
 
+    // Conditional Returns
     if (docLoading) {
         return (
             <div className="flex h-screen items-center justify-center">
@@ -158,45 +206,22 @@ function DocumentContent() {
         );
     }
 
-    // Group comments by thread
-    const threads = comments.reduce((acc, comment) => {
-        const existing = acc.find(t => t.id === comment.thread_id);
-        if (existing) {
-            existing.comments.push({
-                id: comment.id,
-                authorName: comment.user?.full_name || comment.user?.email || 'Anonymous',
-                authorEmail: comment.user?.email,
-                content: comment.content,
-                createdAt: comment.created_at,
-            });
-        } else if (!comment.parent_id) {
-            acc.push({
-                id: comment.thread_id,
-                anchorId: comment.position_data?.toString() || '',
-                comments: [{
-                    id: comment.id,
-                    authorName: comment.user?.full_name || comment.user?.email || 'Anonymous',
-                    authorEmail: comment.user?.email,
-                    content: comment.content,
-                    createdAt: comment.created_at,
-                }],
-                isResolved: !!comment.resolved_at,
-                createdAt: comment.created_at,
-                updatedAt: comment.updated_at,
-            });
-        }
-        return acc;
-    }, [] as any[]);
+    const isReady = (isConnected && isSynced) || forceShow;
 
-    // Map database versions to Version type
-    const mappedVersions = versions.map(v => ({
-        id: v.id,
-        timestamp: v.created_at,
-        authorName: v.user?.full_name || v.user?.email || 'Anonymous',
-        authorEmail: v.user?.email,
-        content: v.content as unknown as string, // Cast Json to string for the editor
-        label: v.title || v.change_summary || undefined
-    }));
+    if (!isReady) {
+        return (
+            <div className="flex h-screen items-center justify-center flex-col gap-4 bg-[#f8f9fa] dark:bg-[#111111]">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                <div className="text-muted-foreground text-sm flex flex-col items-center gap-1">
+                    <p>Loading document...</p>
+                    <div className="text-xs opacity-70 flex flex-col items-center">
+                        <span>{isConnected ? 'Connected to server ✓' : 'Connecting to server...'}</span>
+                        <span>{isSynced ? 'Synced ✓' : 'Syncing changes...'}</span>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex h-screen bg-[#f8f9fa] dark:bg-[#111111]">
@@ -225,16 +250,32 @@ function DocumentContent() {
                             <div className="flex items-center gap-4 mt-1">
                                 <span className="text-xs text-muted-foreground flex items-center gap-1.5">
                                     <span className={`w-2 h-2 rounded-full ${isConnected && isSynced ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
-                                    {!isConnected ? 'Offline' : !isSynced ? 'Syncing...' : editCount > 0 ? `${editCount} unsaved changes` : 'All changes saved'}
+                                    {editCount > 0
+                                        ? `${editCount} unsaved changes`
+                                        : !isConnected
+                                            ? 'Offline (Saved)'
+                                            : !isSynced
+                                                ? 'Syncing...'
+                                                : 'All changes saved'
+                                    }
                                 </span>
                                 <span className="text-xs text-muted-foreground">
                                     {collaborationUsers.length} active user{collaborationUsers.length !== 1 ? 's' : ''}
                                 </span>
+                                <div className="h-4 w-px bg-gray-300 dark:bg-gray-700 mx-2" />
+                                <button
+                                    onClick={() => manualSave()}
+                                    className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium transition-colors"
+                                    title="Save to database (Ctrl+S)"
+                                >
+                                    <Save size={14} />
+                                    Save
+                                </button>
                                 <button
                                     onClick={() => router.push('/')}
-                                    className="text-xs text-blue-600 hover:underline"
+                                    className="text-xs text-muted-foreground hover:underline"
                                 >
-                                    Back to Dashboard
+                                    Dashboard
                                 </button>
                                 <button
                                     onClick={() => setShowComments(!showComments)}
@@ -256,30 +297,32 @@ function DocumentContent() {
                         </div>
                     </div>
 
-                    {ydoc && document ? (
-                        <Editor
-                            ydoc={ydoc}
-                            provider={provider}
-                            users={collaborationUsers}
-                            threads={threads}
-                            onThreadClick={(id: string) => {
-                                setActiveThreadId(id);
-                                setShowComments(true);
-                                setShowHistory(false);
-                            }}
-                            initialContent={previewVersion ? previewVersion.content : document.content}
-                            forceContent={forceContent}
-                            onChange={setEditorJson}
-                            readOnly={!!previewVersion}
-                        />
-                    ) : (
-                        <div className="flex flex-col items-center justify-center min-h-[500px] bg-[var(--navbar-bg)] rounded-lg border border-dashed">
-                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
-                            <p className="text-sm text-muted-foreground font-medium">
-                                {!document ? 'Loading document...' : 'Initializing collaboration...'}
-                            </p>
-                        </div>
-                    )}
+                    {
+                        ydoc && document ? (
+                            <Editor
+                                ydoc={ydoc}
+                                provider={provider}
+                                users={collaborationUsers}
+                                threads={threads}
+                                onThreadClick={(id: string) => {
+                                    setActiveThreadId(id);
+                                    setShowComments(true);
+                                    setShowHistory(false);
+                                }}
+                                initialContent={previewVersion ? previewVersion.content : document.content}
+                                forceContent={forceContent}
+                                onChange={setEditorJson}
+                                readOnly={!!previewVersion}
+                            />
+                        ) : (
+                            <div className="flex flex-col items-center justify-center min-h-[500px] bg-[var(--navbar-bg)] rounded-lg border border-dashed">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+                                <p className="text-sm text-muted-foreground font-medium">
+                                    {!document ? 'Loading document...' : 'Initializing collaboration...'}
+                                </p>
+                            </div>
+                        )
+                    }
 
                 </div>
             </div>
@@ -296,19 +339,21 @@ function DocumentContent() {
                 />
             )}
 
-            {showHistory && (
-                <VersionHistorySidebar
-                    versions={mappedVersions}
-                    currentVersionId={previewVersion?.id}
-                    onVersionSelect={(v) => setPreviewVersion(v)}
-                    onRestore={handleRestoreVersion}
-                    onClose={() => {
-                        setShowHistory(false);
-                        setPreviewVersion(null);
-                    }}
-                    isPreviewMode={!!previewVersion}
-                />
-            )}
+            {
+                showHistory && (
+                    <VersionHistorySidebar
+                        versions={mappedVersions}
+                        currentVersionId={previewVersion?.id}
+                        onVersionSelect={(v) => setPreviewVersion(v)}
+                        onRestore={handleRestoreVersion}
+                        onClose={() => {
+                            setShowHistory(false);
+                            setPreviewVersion(null);
+                        }}
+                        isPreviewMode={!!previewVersion}
+                    />
+                )
+            }
         </div>
     );
 }

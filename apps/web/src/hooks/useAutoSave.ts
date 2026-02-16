@@ -74,7 +74,22 @@ export function useAutoSave({
         saveTimeoutRef.current = setTimeout(() => saveToSupabase(false), saveInterval);
     }, [saveInterval, saveToSupabase]);
 
-    // Listen to document updates (to detect edits)
+    // Watch content changes to trigger auto-save
+    // This is needed because editorJson updates don't fire ydoc.on('update') events
+    useEffect(() => {
+        if (!content || !enabled) return;
+
+        // Skip if content is the same
+        if (content === latestContentRef.current) return;
+
+        // Increment edit count and schedule save
+        editCountRef.current++;
+        scheduleSave();
+
+        console.log(`✏️ Content changed, scheduling save (${editCountRef.current} edits)`);
+    }, [content, enabled, scheduleSave]);
+
+    // Listen to document updates (to detect edits from Yjs directly if any)
     useEffect(() => {
         if (!ydoc || !enabled) return;
 

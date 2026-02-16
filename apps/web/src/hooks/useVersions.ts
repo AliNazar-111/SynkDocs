@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase-client';
 import {
     getDocumentVersions,
     getVersion,
@@ -13,6 +14,20 @@ export function useVersions(documentId: string | null) {
     const [versions, setVersions] = useState<DocumentVersionWithUser[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<Error | null>(null);
+
+    const refetch = async () => {
+        if (!documentId) return;
+        try {
+            setLoading(true);
+            const data = await getDocumentVersions(documentId!);
+            setVersions(data);
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err : new Error('Failed to fetch versions'));
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
         console.log(`📜 useVersions: Initializing for doc ${documentId}`);
@@ -53,20 +68,6 @@ export function useVersions(documentId: string | null) {
             mounted = false;
         };
     }, [documentId]);
-
-    const refetch = async () => {
-        if (!documentId) return;
-        try {
-            setLoading(true);
-            const data = await getDocumentVersions(documentId!);
-            setVersions(data);
-            setError(null);
-        } catch (err) {
-            setError(err instanceof Error ? err : new Error('Failed to fetch versions'));
-        } finally {
-            setLoading(false);
-        }
-    };
 
     return { versions, loading, error, refetch };
 }
@@ -115,4 +116,48 @@ export function useVersion(versionId: string | null) {
     }, [versionId]);
 
     return { version, loading, error };
+}
+
+/**
+ * Hook to subscribe to version history changes (real-time)
+ */
+export function useVersionsData(documentId: string | null) {
+    const { versions, loading, error, refetch } = useVersions(documentId);
+    const [realtimeVersions, setRealtimeVersions] = useState<DocumentVersionWithUser[]>([]);
+
+    useEffect(() => {
+        setRealtimeVersions(versions);
+    }, [versions]);
+
+    useEffect(() => {
+        if (!documentId) return;
+
+        console.log(`📡 Versions Data: Connecting to real-time updates for ${documentId}...`);
+
+        const channel = supabase
+            .channel(`public:document_versions:${documentId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'document_versions',
+                    filter: `document_id=eq.${documentId}`
+                },
+                (payload) => {
+                    console.log('🔄 Versions Data: Change detected!', payload.eventType);
+                    refetch();
+                }
+            )
+            .subscribe((status) => {
+                console.log('📡 Versions Data: Subscription status:', status);
+            });
+
+        return () => {
+            console.log('📡 Versions Data: Cleaning up subscription');
+            supabase.removeChannel(channel);
+        };
+    }, [documentId, refetch]);
+
+    return { versions: realtimeVersions, loading, error, refetch };
 }
