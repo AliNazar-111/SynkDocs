@@ -35,3 +35,92 @@ body {
     @apply bg-[var(--background)] text-[var(--foreground)];
   }
 }
+
+/* ========================================= */
+/*  COLLABORATION CURSOR & TYPING INDICATOR  */
+/* ========================================= */
+
+.collaboration-cursor__caret {
+  border-left: 2px solid #0d0d0d;
+  border-right: none;
+  margin-left: -1px;
+  margin-right: -1px;
+  pointer-events: auto;
+  position: relative;
+  word-break: normal;
+  transition: all 0.2s ease;
+}
+
+/* Pulse animation for the caret */
+.collaboration-cursor__caret {
+  animation: cursor-pulse 2s infinite;
+}
+
+@keyframes cursor-pulse {
+  0% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.6;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Name Tag (Tooltip) - Hover Only */
+.collaboration-cursor__label {
+  position: absolute;
+  top: -2.4em;
+  left: -0.5em;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: normal;
+  user-select: none;
+  color: white;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  white-space: nowrap;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  z-index: 50;
+
+  /* Hidden by default */
+  opacity: 0;
+  transform: translateY(4px) scale(0.9);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+  /* Let clicks pass through */
+}
+
+/* Append " is typing" to the name */
+.collaboration-cursor__label::after {
+  content: " is typing";
+  font-weight: 400;
+  opacity: 0.9;
+  margin-left: 3px;
+}
+
+/* Show on hover */
+.collaboration-cursor__caret:hover .collaboration-cursor__label {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Selection Highlight removal - Critical for minimizing intrusion */
+.collaboration-cursor__selection {
+  background-color: transparent !important;
+}
+
+/* Mobile Hit Area - Expand tap target without affecting layout */
+.collaboration-cursor__caret::before {
+  content: '';
+  position: absolute;
+  top: -15px;
+  bottom: -15px;
+  left: -15px;
+  right: -15px;
+  background: transparent;
+  z-index: 10;
+}

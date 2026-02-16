@@ -9,12 +9,14 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useDocuments, useDocumentsData } from '@/hooks/useDocuments';
 import { createDocument, deleteDocument } from '@/lib/api/documents';
 import { CreateDocumentDialog } from '@/components/ui/CreateDocumentDialog';
+import { DeleteDocumentDialog } from '@/components/ui/DeleteDocumentDialog';
 
 export default function DashboardPage() {
     const { user } = useAuth();
     const router = useRouter();
     const { documents, loading, error, refetch } = useDocumentsData();
     const [isCreateDialogOpen, setIsCreateDialogOpen] = React.useState(false);
+    const [documentToDelete, setDocumentToDelete] = React.useState<any | null>(null);
 
     const handleConfirmCreate = async (docName: string) => {
         try {
@@ -27,14 +29,20 @@ export default function DashboardPage() {
         }
     };
 
-    const handleDeleteDocument = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this document?')) {
-            return;
+    const handleDeleteClick = (id: string) => {
+        const doc = documents.find((d) => d.id === id);
+        if (doc) {
+            setDocumentToDelete(doc);
         }
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!documentToDelete) return;
 
         try {
-            await deleteDocument(id);
+            await deleteDocument(documentToDelete.id);
             await refetch(); // Refresh the list
+            setDocumentToDelete(null);
         } catch (error) {
             console.error('Failed to delete document:', error);
             const message = error instanceof Error ? error.message : 'Unknown error';
@@ -108,7 +116,8 @@ export default function DashboardPage() {
                         <DocumentCard
                             key={doc.id}
                             doc={doc}
-                            onDelete={handleDeleteDocument}
+                            onDelete={handleDeleteClick}
+                            currentUserId={user?.id}
                         />
                     ))}
                 </div>
@@ -119,6 +128,13 @@ export default function DashboardPage() {
                 onClose={() => setIsCreateDialogOpen(false)}
                 onConfirm={handleConfirmCreate}
                 existingNames={documents.map(d => d.title)}
+            />
+
+            <DeleteDocumentDialog
+                isOpen={!!documentToDelete}
+                onClose={() => setDocumentToDelete(null)}
+                onConfirm={handleConfirmDelete}
+                documentTitle={documentToDelete?.title || ''}
             />
         </div>
     );
