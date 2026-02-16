@@ -1,6 +1,7 @@
+'use client';
+
 import { useEffect, useState } from 'react';
 import { useCollaboration } from '@/components/providers/CollaborationProvider';
-import type { Awareness } from 'y-protocols/awareness';
 
 export interface PresenceUser {
     id: string;
@@ -19,25 +20,40 @@ export function usePresence() {
     const [users, setUsers] = useState<PresenceUser[]>([]);
 
     useEffect(() => {
-        if (!provider) return;
+        if (!provider) {
+            setUsers([]);
+            return;
+        }
 
         const awareness = provider.awareness;
 
         const updatePresence = () => {
             const states = Array.from(awareness.getStates().entries());
 
-            const presenceUsers: PresenceUser[] = states
-                .filter(([_, state]) => state.user) // Only filter out states without user data
-                .map(([_, state]) => ({
-                    id: state.user?.id || 'anonymous',
-                    email: state.user?.email || 'Anonymous',
-                    name: state.user?.name,
-                    color: state.user?.color || '#' + Math.floor(Math.random() * 16777215).toString(16),
-                    cursor: state.cursor,
-                    isTyping: state.user?.isTyping,
-                }));
+            // Deduplicate by user ID to show unique people
+            const seenUsers = new Map<string, PresenceUser>();
 
-            setUsers(presenceUsers);
+            states.forEach(([clientId, state]: [number, any]) => {
+                const userData = state.user;
+                if (!userData || !userData.id) return;
+
+                const userId = userData.id;
+
+                // If we haven't seen this user, or if this specific client is typing,
+                // prefer this connection's data for the UI representation.
+                if (!seenUsers.has(userId) || userData.isTyping) {
+                    seenUsers.set(userId, {
+                        id: userId,
+                        email: userData.email || 'Anonymous',
+                        name: userData.name,
+                        color: userData.color || '#cccccc',
+                        cursor: state.cursor,
+                        isTyping: userData.isTyping,
+                    });
+                }
+            });
+
+            setUsers(Array.from(seenUsers.values()));
         };
 
         awareness.on('change', updatePresence);

@@ -126,43 +126,37 @@ export async function updateComment(
 /**
  * Resolve a comment thread
  */
-export async function resolveComment(commentId: string): Promise<Comment> {
+export async function resolveComment(threadId: string): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
         throw new Error('User not authenticated');
     }
 
-    const { data, error } = await supabase
+    const { error } = await supabase
         .from('comments')
         .update({
             resolved_at: new Date().toISOString(),
             resolved_by: user.id,
         })
-        .eq('id', commentId)
-        .select()
-        .single();
+        .eq('thread_id', threadId);
 
     if (error) handleSupabaseError(error);
-    return data;
 }
 
 /**
  * Unresolve a comment thread
  */
-export async function unresolveComment(commentId: string): Promise<Comment> {
-    const { data, error } = await supabase
+export async function unresolveComment(threadId: string): Promise<void> {
+    const { error } = await supabase
         .from('comments')
         .update({
             resolved_at: null,
             resolved_by: null,
         })
-        .eq('id', commentId)
-        .select()
-        .single();
+        .eq('thread_id', threadId);
 
     if (error) handleSupabaseError(error);
-    return data;
 }
 
 /**

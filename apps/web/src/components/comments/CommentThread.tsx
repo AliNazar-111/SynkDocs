@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { CommentThread as ThreadType } from '@/types/comment';
 import CommentCard from './CommentCard';
+import { useAuth } from '@/components/providers/AuthContext';
 
 interface CommentThreadProps {
     thread: ThreadType;
@@ -19,8 +20,12 @@ const CommentThread: React.FC<CommentThreadProps> = ({
     onReopen,
     isActive
 }) => {
+    const { user } = useAuth();
     const [replyContent, setReplyContent] = useState('');
     const [isReplying, setIsReplying] = useState(false);
+    const [showDetails, setShowDetails] = useState(false);
+
+    const isAuthor = user?.id === thread.rootAuthorId;
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -31,17 +36,45 @@ const CommentThread: React.FC<CommentThreadProps> = ({
         }
     };
 
+    const formatDate = (dateString: string) => {
+        return new Date(dateString).toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    };
+
     if (thread.isResolved) {
         return (
-            <div className="border border-green-100 dark:border-green-900/30 bg-green-50/30 dark:bg-green-900/10 rounded-lg p-3 opacity-60 hover:opacity-100 transition-opacity">
-                <div className="flex items-center justify-between">
-                    <span className="text-xs text-green-600 dark:text-green-400 font-medium">Thread resolved</span>
-                    <button
-                        onClick={() => onReopen(thread.id)}
-                        className="text-[10px] text-blue-600 hover:underline"
-                    >
-                        Reopen
-                    </button>
+            <div className="border border-green-100 dark:border-green-900/30 bg-green-50/30 dark:bg-green-900/10 rounded-lg p-3 opacity-80 hover:opacity-100 transition-opacity">
+                <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                        Resolved
+                    </span>
+                    {isAuthor && (
+                        <button
+                            onClick={() => onReopen(thread.id)}
+                            className="text-[10px] text-blue-600 hover:underline font-medium"
+                        >
+                            Reopen
+                        </button>
+                    )}
+                </div>
+                <div
+                    className="text-xs text-muted-foreground cursor-pointer hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+                    onClick={() => setShowDetails(!showDetails)}
+                >
+                    <p className="line-clamp-1 italic">"{thread.comments[0].content}"</p>
+                    {showDetails && (
+                        <div className="mt-2 pt-2 border-t border-green-200 dark:border-green-900/50 space-y-1 text-[10px]">
+                            <p>Created: {formatDate(thread.createdAt)}</p>
+                            {thread.resolvedAt && <p>Resolved: {formatDate(thread.resolvedAt)}</p>}
+                            <p>Replies: {thread.comments.length - 1}</p>
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -49,8 +82,8 @@ const CommentThread: React.FC<CommentThreadProps> = ({
 
     return (
         <div className={`border rounded-lg overflow-hidden transition-all shadow-sm ${isActive
-                ? 'ring-2 ring-blue-500 border-transparent bg-white dark:bg-gray-800'
-                : 'border-muted-foreground/10 bg-gray-50/50 dark:bg-gray-900/50'
+            ? 'ring-2 ring-blue-500 border-transparent bg-white dark:bg-gray-800'
+            : 'border-muted-foreground/10 bg-gray-50/50 dark:bg-gray-900/50'
             }`}>
             <div className="divide-y divide-muted-foreground/10">
                 {thread.comments.map((comment) => (
@@ -58,21 +91,39 @@ const CommentThread: React.FC<CommentThreadProps> = ({
                 ))}
             </div>
 
+            {showDetails && (
+                <div className="px-3 py-2 bg-gray-50 dark:bg-gray-950/50 border-t border-muted/10 text-[10px] text-muted-foreground space-y-0.5">
+                    <p>Thread ID: <span className="font-mono opacity-70">{thread.id.slice(0, 8)}...</span></p>
+                    <p>Created: {formatDate(thread.createdAt)}</p>
+                </div>
+            )}
+
             <div className="p-2 border-t border-muted-foreground/10 bg-white/50 dark:bg-black/20 flex gap-2">
                 {!isReplying ? (
                     <div className="flex w-full items-center justify-between">
-                        <button
-                            onClick={() => setIsReplying(true)}
-                            className="text-xs text-muted-foreground hover:text-blue-600 px-2 py-1"
-                        >
-                            Reply...
-                        </button>
-                        <button
-                            onClick={() => onResolve(thread.id)}
-                            className="text-[10px] text-green-600 font-medium hover:bg-green-100 dark:hover:bg-green-900/30 px-2 py-1 rounded transition-colors"
-                        >
-                            Resolve
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setIsReplying(true)}
+                                className="text-xs text-muted-foreground hover:text-blue-600 px-2 py-1"
+                            >
+                                Reply...
+                            </button>
+                            <button
+                                onClick={() => setShowDetails(!showDetails)}
+                                className="text-[10px] text-muted-foreground hover:text-gray-900 px-1"
+                                title="Toggle Details"
+                            >
+                                •••
+                            </button>
+                        </div>
+                        {isAuthor && (
+                            <button
+                                onClick={() => onResolve(thread.id)}
+                                className="text-[10px] text-green-600 font-medium hover:bg-green-100 dark:hover:bg-green-900/30 px-2 py-1 rounded transition-colors"
+                            >
+                                Resolve
+                            </button>
+                        )}
                     </div>
                 ) : (
                     <form onSubmit={handleSubmit} className="w-full">

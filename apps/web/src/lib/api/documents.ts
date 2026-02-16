@@ -4,6 +4,17 @@ import { handleSupabaseError } from '@/lib/errors';
 export type Document = Tables<'documents'>;
 export type DocumentCollaborator = Tables<'document_collaborators'>;
 
+export interface DocumentInvite {
+    id: string;
+    document_id: string;
+    invited_email: string;
+    inviter_user_id: string;
+    role: 'editor' | 'viewer';
+    status: 'pending' | 'accepted' | 'declined';
+    created_at: string;
+    accepted_at: string | null;
+}
+
 // Extended types with joins
 export interface DocumentWithCollaborators extends Document {
     collaborators?: DocumentCollaborator[];
@@ -215,6 +226,55 @@ export async function checkDocumentAccess(
 }
 
 /**
+ * Invite a user to a document by email
+ */
+export async function inviteDocument(
+    documentId: string,
+    email: string,
+    role: 'editor' | 'viewer' = 'viewer'
+): Promise<DocumentInvite> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Authentication required');
+
+    // 1. Check if user is the owner
+    const { data: doc, error: docError } = await supabase
+        .from('documents')
+        .select('owner_id')
+        .eq('id', documentId)
+        .single();
+
+    if (docError || !doc) throw new Error('Document not found');
+    if (doc.owner_id !== user.id) throw new Error('Only the owner can send invites');
+
+    // 2. Check for duplicate pending invite
+    const { data: existing } = await (supabase
+        .from('document_invites' as any)
+        .select('id')
+        .eq('document_id', documentId)
+        .eq('invited_email', email)
+        .eq('status', 'pending')
+        .maybeSingle() as any);
+
+    if (existing) throw new Error('Invite already pending for this email');
+
+    // 3. Insert invite
+    const { data, error } = await (supabase
+        .from('document_invites' as any)
+        .insert({
+            document_id: documentId,
+            invited_email: email,
+            inviter_user_id: user.id,
+            role,
+            status: 'pending'
+        })
+        .select()
+        .single() as any);
+
+    if (error) handleSupabaseError(error);
+    return data;
+}
+
+/**
  * Subscribe to document changes (real-time)
  */
 export function subscribeToDocument(
@@ -240,4 +300,27 @@ export function subscribeToDocument(
     return () => {
         supabase.removeChannel(channel);
     };
+}
+
+/**
+ * Accept a document invitation
+ */
+export async function acceptInvite(inviteId: string): Promise<{ success: boolean; document_id: string }> {
+    const { data, error } = await (supabase.rpc('accept_document_invite' as any, {
+        p_invite_id: inviteId,
+    }) as any);
+
+    if (error) handleSupabaseError(error);
+    return data;
+}
+
+/**
+ * Reject a document invitation
+ */
+export async function rejectInvite(inviteId: string): Promise<void> {
+    const { error } = await (supabase.rpc('reject_document_invite' as any, {
+        p_invite_id: inviteId,
+    }) as any);
+
+    if (error) handleSupabaseError(error);
 }

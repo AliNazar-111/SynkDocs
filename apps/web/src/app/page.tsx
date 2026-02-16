@@ -8,22 +8,22 @@ import { useAuth } from '@/components/providers/AuthContext';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useDocuments, useDocumentsData } from '@/hooks/useDocuments';
 import { createDocument, deleteDocument } from '@/lib/api/documents';
+import { CreateDocumentDialog } from '@/components/ui/CreateDocumentDialog';
 
 export default function DashboardPage() {
     const { user } = useAuth();
     const router = useRouter();
     const { documents, loading, error, refetch } = useDocumentsData();
+    const [isCreateDialogOpen, setIsCreateDialogOpen] = React.useState(false);
 
-    const handleCreateDocument = async () => {
+    const handleConfirmCreate = async (docName: string) => {
         try {
-            const newDoc = await createDocument('Untitled Document', {});
-
-            // Navigate to the new document
+            const newDoc = await createDocument(docName, {});
             router.push(`/documents/${newDoc.id}`);
+            setIsCreateDialogOpen(false);
         } catch (error) {
             console.error('Failed to create document:', error);
-            const message = error instanceof Error ? error.message : 'Unknown error';
-            alert(`Failed to create document: ${message}`);
+            throw error;
         }
     };
 
@@ -78,7 +78,7 @@ export default function DashboardPage() {
     }
 
     return (
-        <div className="p-8 max-w-7xl mx-auto">
+        <div className="p-8 max-w-7xl mx-auto h-full overflow-y-auto">
             <div className="flex items-center justify-between mb-8">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight mb-2">My Documents</h1>
@@ -89,7 +89,7 @@ export default function DashboardPage() {
 
                 {documents.length > 0 && (
                     <button
-                        onClick={handleCreateDocument}
+                        onClick={() => setIsCreateDialogOpen(true)}
                         className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors flex items-center gap-2 shadow-sm"
                     >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -101,7 +101,7 @@ export default function DashboardPage() {
             </div>
 
             {documents.length === 0 ? (
-                <EmptyState onCreate={handleCreateDocument} />
+                <EmptyState onCreate={() => setIsCreateDialogOpen(true)} />
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-in fade-in duration-500">
                     {documents.map((doc) => (
@@ -113,6 +113,13 @@ export default function DashboardPage() {
                     ))}
                 </div>
             )}
+
+            <CreateDocumentDialog
+                isOpen={isCreateDialogOpen}
+                onClose={() => setIsCreateDialogOpen(false)}
+                onConfirm={handleConfirmCreate}
+                existingNames={documents.map(d => d.title)}
+            />
         </div>
     );
 }

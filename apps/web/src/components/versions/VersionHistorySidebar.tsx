@@ -65,6 +65,23 @@ const VersionHistorySidebar: React.FC<VersionHistorySidebarProps> = ({
                             You are viewing a previous version. Live collaboration is paused.
                         </p>
                     </div>
+
+                    <div className="px-1 py-2 space-y-1.5 text-xs text-muted-foreground border-b border-gray-100 dark:border-gray-800 mb-2">
+                        <div className="flex justify-between">
+                            <span className="font-medium text-gray-700 dark:text-gray-300">Version ID:</span>
+                            <span className="font-mono text-[10px]">{activeVersion.id.slice(0, 8)}...</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="font-medium text-gray-700 dark:text-gray-300">Created:</span>
+                            <span>{new Date(activeVersion.timestamp).toLocaleString(undefined, {
+                                year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                            })}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="font-medium text-gray-700 dark:text-gray-300">Author:</span>
+                            <span className="truncate max-w-[150px]" title={activeVersion.authorEmail}>{activeVersion.authorName}</span>
+                        </div>
+                    </div>
                     <button
                         onClick={() => onRestore(activeVersion)}
                         className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors"

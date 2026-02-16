@@ -16,61 +16,43 @@ export function useComments(documentId: string | null) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<Error | null>(null);
 
+    const refetch = async () => {
+        if (!documentId) return;
+        try {
+            // setLoading(true); // Optional: don't show spinner on background refresh
+            const data = await getDocumentComments(documentId);
+            setComments(data);
+            setError(null);
+        } catch (err) {
+            console.error('💬 useComments: Fetch error:', err);
+            setError(err instanceof Error ? err : new Error('Failed to fetch comments'));
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
         console.log(`💬 useComments: Initializing for doc ${documentId}`);
         if (!documentId) {
-            console.log('💬 useComments: No documentId provided, skipping');
             setComments([]);
             setLoading(false);
             return;
         }
 
-        let mounted = true;
-
-        async function fetchComments() {
-            try {
-                setLoading(true);
-                console.log('💬 useComments: Fetching comments...');
-                const data = await getDocumentComments(documentId!);
-                console.log(`💬 useComments: Fetched ${data.length} comments`);
-                if (mounted) {
-                    setComments(data);
-                    setError(null);
-                }
-            } catch (err) {
-                console.error('💬 useComments: Fetch error:', err);
-                if (mounted) {
-                    setError(err instanceof Error ? err : new Error('Failed to fetch comments'));
-                }
-            } finally {
-                if (mounted) {
-                    setLoading(false);
-                }
-            }
-        }
-
-        fetchComments();
+        refetch();
 
         // Subscribe to real-time updates
-        const unsubscribe = subscribeToComments(documentId!, (comment, event) => {
-            if (event === 'INSERT') {
-                setComments(prev => [...prev, comment as CommentWithUser]);
-            } else if (event === 'UPDATE') {
-                setComments(prev =>
-                    prev.map(c => c.id === comment.id ? { ...c, ...comment } : c)
-                );
-            } else if (event === 'DELETE') {
-                setComments(prev => prev.filter(c => c.id !== comment.id));
-            }
+        const unsubscribe = subscribeToComments(documentId, (comment, event) => {
+            console.log('💬 useComments: Realtime event:', event, comment);
+            refetch(); // Correctly fetch fresh data including joins
         });
 
         return () => {
-            mounted = false;
             unsubscribe();
         };
     }, [documentId]);
 
-    return { comments, loading, error };
+    return { comments, loading, error, refetch };
 }
 
 /**

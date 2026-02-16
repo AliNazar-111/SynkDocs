@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 
 // Configuration
 const WSS_PORT = process.env.WSS_PORT || 1234;
+const WSS_HOST = process.env.WSS_HOST || '0.0.0.0';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -61,7 +62,10 @@ async function checkAccessAndStatus(userId, documentId) {
 
 console.log('Starting SynkDocs WebSocket Server...');
 
-const wss = new WebSocketServer({ port: WSS_PORT });
+const wss = new WebSocketServer({
+    port: WSS_PORT,
+    host: WSS_HOST
+});
 
 wss.on('connection', async (conn, req) => {
     try {
@@ -82,6 +86,15 @@ wss.on('connection', async (conn, req) => {
 
         const documentId = roomName.replace('document:', '');
         const start = Date.now();
+
+        // 0. MESSAGE BUFFERING (CRITICAL FIX)
+        // Since we await async auth, we might miss the 'message' event for SyncStep1
+        // which the client sends immediately. We buffer them here.
+        const messageQueue = [];
+        const queueListener = (data, isBinary) => {
+            messageQueue.push({ data, isBinary });
+        };
+        conn.on('message', queueListener);
 
         // 1. Authenticate User (needed first to get userId for access check)
         const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
@@ -120,7 +133,18 @@ wss.on('connection', async (conn, req) => {
         activeConnections.set(conn, { user: authUser, roomName, checkInterval });
 
         // 4. Standard y-websocket setup
+        // Remove our buffer listener first so it doesn't duplicate
+        conn.removeListener('message', queueListener);
+
         setupWSConnection(conn, req, { docName: roomName, gc: true });
+
+        // Replay queued messages
+        if (messageQueue.length > 0) {
+            console.log(`📨 Replaying ${messageQueue.length} buffered messages for ${authUser.email}`);
+            for (const { data, isBinary } of messageQueue) {
+                conn.emit('message', data, isBinary);
+            }
+        }
 
         conn.on('close', (code, reason) => {
             console.log(`🔌 Disconnected: ${authUser.email} (Code: ${code})`);
@@ -143,4 +167,4 @@ setInterval(() => {
     }
 }, 30000);
 
-console.log(`🚀 SynkDocs WebSocket Server is ready on port ${WSS_PORT}\n`);
+console.log(`🚀 SynkDocs WebSocket Server is ready on ${WSS_HOST}:${WSS_PORT}\n`);

@@ -4,7 +4,7 @@ import React, { useEffect } from 'react';
 import { AuthProvider, useAuth } from "@/components/providers/AuthContext";
 import { useRouter, usePathname } from "next/navigation";
 import Navbar from "@/components/layout/Navbar";
-import Sidebar from "@/components/layout/Sidebar";
+import Sidebar from "@/components/layout/CollaborationSidebar";
 import ErrorBoundary from "@/components/ui/ErrorBoundary";
 
 function RouteGuard({ children }: { children: React.ReactNode }) {
@@ -39,11 +39,11 @@ function RouteGuard({ children }: { children: React.ReactNode }) {
     }
 
     return (
-        <div className="flex flex-col min-h-screen">
+        <div className="flex flex-col h-screen overflow-hidden">
             <Navbar />
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex flex-1 overflow-hidden h-0">
                 <Sidebar />
-                <main className="flex-1 overflow-y-auto bg-white dark:bg-black">
+                <main className="flex-1 overflow-hidden bg-white dark:bg-black h-full">
                     {children}
                 </main>
             </div>

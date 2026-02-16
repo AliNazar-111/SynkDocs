@@ -15,6 +15,7 @@ import { WebsocketProvider } from 'y-websocket';
 import { PresenceUser } from '@/hooks/usePresence';
 import { CommentThread } from '@/types/comment';
 import { EditorView } from '@tiptap/pm/view';
+import { useAuth } from '@/components/providers/AuthContext';
 
 // Custom Extension to handle Tab key (Word-like behavior)
 const TabExtension = Extension.create({
@@ -75,8 +76,20 @@ interface EditorProps {
     onChange?: (content: string) => void;
     readOnly?: boolean;
     forceContent?: any;
+    isSynced?: boolean;
+    isConnected?: boolean;
 }
 
+/**
+ * Pure Yjs Synchronized Editor
+ * 
+ * DESIGN PRINCIPLES (Senior Real-Time Engineer):
+ * 1. Yjs is the SINGLE source of truth.
+ * 2. NO manual content synchronization (setContent, onUpdate manual sync).
+ * 3. NO manual broadcasting of editor state.
+ * 4. TipTap binds DIRECTLY to the Yjs document fragment.
+ * 5. This prevents duplication bugs caused by race conditions between database and real-time sync.
+ */
 const Editor: React.FC<EditorProps> = ({
     ydoc,
     provider,
@@ -87,16 +100,20 @@ const Editor: React.FC<EditorProps> = ({
     initialContent = '',
     onChange,
     readOnly = false,
-    forceContent = null
+    forceContent = null,
+    isSynced = false,
+    isConnected = false
 }: EditorProps) => {
-    // Memoize extensions to prevent re-initializing TipTap on every render
+    const { user } = useAuth();
+
+    // Initialize extensions BEFORE creating the editor instance.
+    // We treat the Collaboration extension as the ONLY way content enters/leaves the editor.
     const extensions = React.useMemo(() => {
-        const baseExtensions: any[] = [
+        if (!ydoc) return [];
+
+        return [
             StarterKit.configure({
-                history: false, // Collaboration handles history internally
-                hardBreak: {
-                    keepMarks: true,
-                },
+                history: false, // Yjs handles history/undo internally via Collaboration extension
             }),
             Typography,
             TabExtension,
@@ -105,53 +122,45 @@ const Editor: React.FC<EditorProps> = ({
             }),
             CommentMark,
             Collaboration.configure({
-                document: ydoc!,
+                document: ydoc,
+                field: 'default',
             }),
-        ];
-
-        // Only add CollaborationCursor if provider is available
-        if (provider) {
-            baseExtensions.push(
+            ...(provider ? [
                 CollaborationCursor.configure({
                     provider: provider,
                     user: provider.awareness.getLocalState()?.user,
                 })
-            );
-        }
-
-        return baseExtensions;
+            ] : []),
+        ];
     }, [ydoc, provider]);
 
     const editor = useEditor({
         extensions,
-        content: undefined,
+        // Senior Engineer Fix: 
+        // We initialize the editor content ONLY if useEditor is mounting for the first time
+        // AND the Yjs document is empty. This effectively "seeds" the Yjs doc
+        // from the database without using setContent() after initialization.
+        content: ydoc?.getXmlFragment('default').length === 0 ? initialContent : undefined,
         editable: !readOnly,
+        // No manual content synchronization is performed here.
+        // The Collaboration extension handles all property bindings to Yjs.
         onUpdate: ({ editor, transaction }) => {
-            // Only trigger onChange for local changes
-            if (transaction.docChanged) {
+            // Awareness updates (typing indicators) are allowed
+            if (provider) {
+                const localState = provider.awareness.getLocalState();
+                if (localState && !localState.user?.isTyping) {
+                    provider.awareness.setLocalStateField('user', {
+                        ...localState.user,
+                        isTyping: true,
+                    });
+                }
+            }
+
+            // Only trigger onChange for LOCAL changes to support database persistence.
+            // We EXPLICITLY filter out changes coming from the Yjs sync engine (y-sync$).
+            if (transaction.docChanged && !transaction.getMeta('y-sync$')) {
                 onChange?.(JSON.stringify(editor.getJSON()));
             }
-
-            // Handle typing indicator
-            if (provider) {
-                provider.awareness.setLocalStateField('user', {
-                    ...provider.awareness.getLocalState()?.user,
-                    isTyping: true,
-                });
-
-                // Clear typing indicator after 2 seconds of inactivity
-                const timeout = setTimeout(() => {
-                    provider.awareness.setLocalStateField('user', {
-                        ...provider.awareness.getLocalState()?.user,
-                        isTyping: false,
-                    });
-                }, 2000);
-
-                return () => clearTimeout(timeout);
-            }
-        },
-        onSelectionUpdate: ({ editor: currentEditor }: { editor: any }) => {
-            // Optional: highight matching thread in sidebar
         },
         editorProps: {
             handleClick: (view: EditorView, pos: number, event: MouseEvent) => {
@@ -170,50 +179,33 @@ const Editor: React.FC<EditorProps> = ({
                 return false;
             },
             attributes: {
-                class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl mx-auto focus:outline-none min-h-[500px] p-8 md:p-12 whitespace-pre-wrap',
+                class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl w-full max-w-none focus:outline-none min-h-[500px] p-8 md:p-12 whitespace-pre-wrap',
             },
         },
-    }, [extensions]); // Add extensions as dependency for useEditor
+    }, [extensions]);
 
-    // Update editable state when readOnly prop changes
+    // Handle editable state reactively
     React.useEffect(() => {
-        if (editor) {
-            editor.setEditable(!readOnly);
-        }
+        if (editor) editor.setEditable(!readOnly);
     }, [editor, readOnly]);
 
-    const initialContentApplied = React.useRef(false);
-    const prevInitialContent = React.useRef<any>(null);
-
-    // Force content update (e.g. previewing history OR restoring a version)
+    // Force content should only be used for manual overrides like History Restoration.
+    // It is NEVER used for initial document loading in the Pure Yjs model.
     React.useEffect(() => {
-        if (!editor) return;
-
-        // Force content always takes priority
-        if (forceContent) {
+        if (editor && forceContent) {
+            console.log('⚡ Yjs: Explicit content restoration triggered');
             editor.commands.setContent(forceContent);
-            return;
         }
+    }, [editor, forceContent]);
 
-        // Apply initial content only once or when it significantly changes
-        if (initialContent && (initialContent !== prevInitialContent.current || !initialContentApplied.current)) {
-            // Only apply if the editor is currently empty to avoid overwriting remote sync content
-            if (editor.isEmpty) {
-                console.log('📄 Applying initial content from Supabase');
-                // Handle ydoc.toJSON() format which wraps content in 'default'
-                const contentToSet = initialContent.default || initialContent;
-                editor.commands.setContent(contentToSet);
-            }
-            initialContentApplied.current = true;
-            prevInitialContent.current = initialContent;
-        }
-    }, [editor, initialContent, forceContent]);
+    // Senior Engineer requirement: Ensure we don't render a broken state if editor isn't ready.
+    if (!editor) return null;
 
     return (
-        <div className="flex flex-col flex-1 h-full max-w-4xl mx-auto bg-[var(--navbar-bg)] shadow-sm border rounded-b-none md:rounded-b-lg overflow-hidden">
+        <div className="flex flex-col flex-1 h-full min-h-0 w-full bg-[var(--navbar-bg)] shadow-sm border rounded-b-none md:rounded-b-lg overflow-hidden">
             <PresenceBar users={users} />
             <Toolbar editor={editor} />
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto bg-white dark:bg-gray-900 custom-scrollbar relative">
                 <EditorContent editor={editor} />
             </div>
         </div>
